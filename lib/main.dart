@@ -1,69 +1,131 @@
+import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-class SpotifyService {
-  // ⚠️ 발급받은 키를 여기에 넣으세요
-  final String clientId = 'c5424305b9724e38b6f3400792d8a8d7c5424305b9724e38b6f3400792d8a8d7';
-  final String clientSecret = 'faa28ec6d9944933bd302132ebfb3398';
+void main() {
+  // 인증서 오류 우회 설정
+  HttpOverrides.global = MyHttpOverrides();
+  runApp(const MyApp());
+}
 
-  String? _accessToken;
+// 반드시 main 함수와 완전히 분리된 독립된 공간에 있어야 합니다.
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+  }
+}
 
-  // [1단계] 엑세스 토큰 발급받기
-  Future<String> getAccessToken() async {
-    // 이미 토큰이 있다면 재사용 (실제 서비스에선 만료 시간 체크 필요)
-    if (_accessToken != null) return _accessToken!;
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
-    final String secrets = base64Encode(utf8.encode('$clientId:$clientSecret'));
-
-    final response = await http.post(
-      Uri.parse('https://spotify.com'),
-      headers: {
-        'Authorization': 'Basic $secrets',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: {
-        'grant_type': 'client_credentials',
-      },
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      home: ItunesSearchScreen(),
     );
+  }
+}
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      _accessToken = data['access_token'];
-      return _accessToken!;
-    } else {
-      throw Exception('스포티파이 토큰 발급 실패: ${response.body}');
+class ItunesSearchScreen extends StatefulWidget {
+  const ItunesSearchScreen({super.key});
+
+  @override
+  State<ItunesSearchScreen> createState() => _ItunesSearchScreenState();
+}
+
+class _ItunesSearchScreenState extends State<ItunesSearchScreen> {
+  final TextEditingController _controller = TextEditingController();
+  List<dynamic> _searchResults = [];
+  bool _isLoading = false;
+
+  Future<void> _searchItunes(String searchTerm) async {
+    if (searchTerm.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    // 윈도우 환경에서 가장 안전한 URL 생성 방식
+    final url = Uri.https('://apple.com', '/search', {
+      'term': searchTerm,
+      'country': 'KR',
+      'media': 'music',
+      'entity': 'song',
+      'limit': '20',
+    });
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _searchResults = data['results'];
+        });
+      } else {
+        _showErrorSnackBar('데이터를 가져오지 못했습니다. (코드: ${response.statusCode})');
+      }
+    } catch (e) {
+      _showErrorSnackBar('네트워크 오류가 발생했습니다: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
-  // [2단계] 음악 검색하기
-  Future<void> searchMusic(String query) async {
-    try {
-      final token = await getAccessToken();
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
 
-      // 검색어(query)와 검색 타입(track=곡, artist=가수 등) 지정
-      final response = await http.get(
-        Uri.parse('https://spotify.com'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final tracks = data['tracks']['items'];
-
-        for (var track in tracks) {
-          print('곡 제목: ${track['name']}');
-          print('아티스트: ${track['artists'][0]['name']}');
-          print('앨범 커버 이미지: ${track['album']['images'][0]['url']}');
-          print('-----------------------------------');
-        }
-      } else {
-        print('검색 실패: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('에러 발생: $e');
-    }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('iTunes 음악 검색')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: InputDecoration(
+                labelText: '가수 또는 노래 제목 입력',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () => _searchItunes(_controller.text),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+              onSubmitted: (value) => _searchItunes(value),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _searchResults.isEmpty
+                  ? const Center(child: Text('검색 결과가 없습니다.'))
+                  : ListView.builder(
+                itemCount: _searchResults.length,
+                itemBuilder: (context, index) {
+                  final track = _searchResults[index];
+                  return ListTile(
+                    leading: track['artworkUrl60'] != null
+                        ? Image.network(track['artworkUrl60'])
+                        : const Icon(Icons.music_note),
+                    title: Text(track['trackName'] ?? '알 수 없는 곡명'),
+                    subtitle: Text(track['artistName'] ?? '알 수 없는 가수'),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
