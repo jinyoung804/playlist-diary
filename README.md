@@ -1,3 +1,17 @@
+## 긴급!! (작업 전 꼭 읽어볼 것)
+
+작업 시작 전에:
+git pull
+
+작업 끝나고:
+git add .
+git commit -m "상세메세지"
+git push 'origin master'
+
+
+------------------
+
+
 # muelog
 
 A new Flutter project.
