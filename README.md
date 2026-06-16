@@ -6,7 +6,7 @@ git pull
 작업 끝나고:
 git add .  
 git commit -m "상세메세지"  
-git push 'origin master'  
+git push 'origin master'  (상황에 따라 'origin master'는 안넣어도 됨)
 
 
 ------------------
